@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>SMO Timer</title>
+    
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#87CEEB">
+    
+    <link rel="manifest" href="data:application/json;base64,ewogICJnameIjogIlNNTyBUaW1lciIsCiAgInNob3J0X25hbWUiOiAiU01PIFRpbWVyIiwKICAic3RhcnRfdXJsIjogIi4iLAogICJkaXNwbGF5IjogInN0YW5kYWxvbmUiLAogICJiYWNrZ3JvdW5kX2NvbG9yIjogIiM4N0NFRUIiLAogICJ0aGVtZV9jb2xvciI6ICIjODdDRUVCIgp9">
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@700&display=swap');
+        * { box-sizing: border-box; margin: 0; padding: 0; touch-action: manipulation; }
+        body { background-color: #87CEEB; color: black; font-family: 'Roboto Mono', monospace; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; position: relative; }
+        #btn-settings { position: absolute; top: 10px; right: 10px; z-index: 100; background: rgba(255,255,255,0.6); border: 2px solid #000; padding: 5px 12px; font-weight: bold; font-size: 14px; }
+        .splits-container { height: 60%; display: flex; flex-direction: column; width: 100%; background-color: rgba(255, 255, 255, 0.4); }
+        .split-row { flex: 1; display: flex; justify-content: space-between; align-items: center; padding: 0 15px; border-bottom: 1px solid rgba(0, 0, 0, 0.1); font-size: 18px; }
+        .current-split { background-color: rgba(255, 255, 255, 0.7); box-shadow: inset 8px 0 0 #1e90ff; font-weight: bold; }
+        .split-time { text-align: right; color: #444; font-weight: bold; }
+        .timer-display-area { height: 25%; display: flex; flex-direction: column; justify-content: center; align-items: flex-end; padding-right: 20px; border-top: 3px solid #000; background: rgba(255, 255, 255, 0.2); }
+        #total-timer, #segment-timer { line-height: 1; color: #1e90ff; -webkit-text-stroke: 1.5px black; paint-order: stroke fill; }
+        #total-timer { font-size: 16vw; }
+        #segment-timer { font-size: 9vw; margin-top: 5px; }
+        .negative { color: #d0d0d0 !important; text-shadow: 1px 1px 2px rgba(0,0,0,0.5); }
+        .running-plus { color: #32cd32 !important; }
+        .controls { height: 15%; display: flex; border-top: 3px solid #000; }
+        button.main-btn { flex: 1; height: 100%; font-family: inherit; font-size: 20px; font-weight: bold; cursor: pointer; border: none; background: white; border-right: 2px solid #000; }
+        button.main-btn:last-child { border-right: none; }
+        #btn-lap { flex: 1.5; background: #eee; }
+        button:active { background: #ccc; }
+    </style>
+</head>
+<body>
+<button id="btn-settings">⚙ 設定</button>
+<div class="splits-container" id="splits"></div>
+<div class="timer-display-area">
+    <div id="total-timer">0.00</div>
+    <div id="segment-timer">0.00</div>
+</div>
+<div class="controls">
+    <button id="btn-start" class="main-btn">START<br>STOP</button>
+    <button id="btn-lap" class="main-btn">LAP</button>
+    <button id="btn-reset" class="main-btn">RESET</button>
+</div>
+<script>
+    const segments = ["帽子", "滝", "砂", "湖", "森", "雲", "失", "都市", "雪", "海", "料理", "奪", "クッパ", "月"];
+    let isRunning = false, offsetTime = 0, totalBase = 0, startTime = null, lastLapTotal = 0, currentIdx = 0;
+    const totalEl = document.getElementById('total-timer'), segmentEl = document.getElementById('segment-timer'), splitsDiv = document.getElementById('splits');
+    function init() {
+        splitsDiv.innerHTML = segments.map((name, i) => `<div class="split-row" id="row-${i}"><span>${name}</span><span class="split-time" id="time-${i}">--:--.--</span></div>`).join('');
+        updateHighlight();
+        lastLapTotal = 0;
+        updateDisplay(offsetTime);
+    }
+    function format(ms) {
+        const isNeg = ms < 0;
+        const absMs = Math.round(Math.abs(ms) / 10) * 10;
+        const h = Math.floor(absMs / 3600000), m = Math.floor((absMs % 3600000) / 60000), s = Math.floor((absMs % 60000) / 1000), mm = Math.floor((absMs % 1000) / 10);
+        const sign = isNeg ? "-" : "", mSec = String(mm).padStart(2, '0');
+        if (h > 0) return `${sign}${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${mSec}`;
+        if (m > 0) return `${sign}${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${mSec}`;
+        return `${sign}${s}.${mSec}`;
+    }
+    function updateDisplay(currentTotal) {
+        totalEl.textContent = format(currentTotal);
+        const currentSeg = currentTotal - lastLapTotal;
+        segmentEl.textContent = format(currentSeg);
+        if (currentTotal < 0) { totalEl.classList.add('negative'); totalEl.classList.remove('running-plus'); }
+        else if (isRunning) { totalEl.classList.remove('negative'); totalEl.classList.add('running-plus'); }
+        else { totalEl.classList.remove('negative', 'running-plus'); }
+        if (currentSeg < 0) { segmentEl.classList.add('negative'); segmentEl.classList.remove('running-plus'); }
+        else if (isRunning) { segmentEl.classList.remove('negative'); segmentEl.classList.add('running-plus'); }
+        else { segmentEl.classList.remove('negative', 'running-plus'); }
+    }
+    function tick() {
+        if (!isRunning) return;
+        updateDisplay((performance.now() - startTime) + totalBase);
+        requestAnimationFrame(tick);
+    }
+    function handleStartStop() {
+        const now = performance.now();
+        if (!isRunning) { isRunning = true; startTime = now; requestAnimationFrame(tick); }
+        else { totalBase += (now - startTime); if (currentIdx === segments.length - 1) recordLapDisplay(totalBase - lastLapTotal); isRunning = false; updateDisplay(totalBase); }
+    }
+    function handleLap() {
+        if (!isRunning || currentIdx >= segments.length) return;
+        const currentTotal = (performance.now() - startTime) + totalBase;
+        recordLapDisplay(currentTotal - lastLapTotal);
+        lastLapTotal = currentTotal;
+    }
+    function recordLapDisplay(timeValue) {
+        const target = document.getElementById(`time-${currentIdx}`);
+        if (target) { target.textContent = format(timeValue); target.style.color = "black"; }
+        currentIdx++; updateHighlight();
+    }
+    function updateHighlight() {
+        document.querySelectorAll('.split-row').forEach(r => r.classList.remove('current-split'));
+        const active = document.getElementById(`row-${currentIdx}`);
+        if (active) active.classList.add('current-split');
+    }
+    document.getElementById('btn-settings').addEventListener('click', () => {
+        if (isRunning) return;
+        const val = prompt("開始秒数 (例: -40)", offsetTime / 1000);
+        if (val !== null) { const num = parseFloat(val); if (!isNaN(num)) { offsetTime = num * 1000; totalBase = offsetTime; lastLapTotal = 0; updateDisplay(totalBase); } }
+    });
+    document.getElementById('btn-start').addEventListener('pointerdown', (e) => { e.preventDefault(); handleStartStop(); });
+    document.getElementById('btn-lap').addEventListener('pointerdown', (e) => { e.preventDefault(); handleLap(); });
+    document.getElementById('btn-reset').addEventListener('pointerdown', (e) => {
+        if (isRunning) return;
+        totalBase = offsetTime; lastLapTotal = 0; currentIdx = 0; init();
+    });
+    init();
+</script>
+</body>
+</html>
